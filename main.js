@@ -6,6 +6,8 @@ const banner = require("./config/banner");
 // Constants
 const LEAVE_DELAY = 5000; // 5 seconds delay between each leave
 const ACCOUNTS_FILE = "accounts.json"; // File to store account tokens
+const LOG_FILE = "log.txt"; // File to store logs
+const GROUPS_FILE = "namagroup.txt"; // File to store group names
 
 // Display banner when program starts
 console.log(banner);
@@ -33,75 +35,111 @@ function clearConsole() {
   console.log(banner);
 }
 
+// Function to get current timestamp
+function getTimestamp() {
+  const now = new Date();
+  return now.toISOString();
+}
+
+// Function to write logs to both console and file
+function log(message, isError = false) {
+  if (isError) {
+    console.error(message);
+  } else {
+    console.log(message);
+  }
+  
+  // Append to log file dengan timestamp
+  const timestamp = getTimestamp();
+  const logMessage = `[${timestamp}] ${message}`;
+  fs.appendFileSync(LOG_FILE, logMessage + "\n", "utf-8");
+}
+
 // Load account tokens from file
 function loadAccounts() {
   if (!fs.existsSync(ACCOUNTS_FILE)) {
-    console.log(`❌ File "${ACCOUNTS_FILE}" not found. Create it with account tokens.`);
+    log(`❌ File "${ACCOUNTS_FILE}" not found. Create it with account tokens.`, true);
     process.exit();
   }
 
   const accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf-8"));
   if (!Array.isArray(accounts) || accounts.length === 0) {
-    console.log(`❌ No valid accounts found in "${ACCOUNTS_FILE}".`);
+    log(`❌ No valid accounts found in "${ACCOUNTS_FILE}".`, true);
     process.exit();
   }
+  
+  log(`✅ Loaded ${accounts.length} account(s) from "${ACCOUNTS_FILE}".`);
   return accounts;
+}
+
+// Function to save all group names with IDs to file
+function saveGroupNames(groups) {
+  const groupNames = groups.map(g => `${g.name}|${g.id}`).join("\n");
+  fs.writeFileSync(GROUPS_FILE, groupNames, "utf-8");
+  log(`✅ Saved ${groups.length} group name(s) with ID to "${GROUPS_FILE}".`);
 }
 
 // Start the program
 (async function () {
+  log("========== PROGRAM STARTED ==========");
+  
   const accounts = loadAccounts();
 
-  console.log("Options:");
-  console.log("1. List and select servers to leave");
-  console.log("2. Leave server by ID from file");
-  console.log("3. Leave all servers");
-  console.log("4. Leave server by invite link");
-  console.log("5. Leave servers by invite links from file");
+  log("Options:");
+  log("1. List and select servers to leave");
+  log("2. Leave server by ID from file");
+  log("3. Leave all servers");
+  log("4. Leave server by invite link");
+  log("5. Leave servers by invite links from file");
+  log("6. Save all group names to file");
 
-  const processChoice = await question("\nSelect a process to perform (1/2/3/4/5): ");
+  const processChoice = await question("\nSelect a process to perform (1/2/3/4/5/6): ");
 
-  if (!["1", "2", "3", "4", "5"].includes(processChoice)) {
-    console.log("❌ Invalid process choice. Exiting...");
+  if (!["1", "2", "3", "4", "5", "6"].includes(processChoice)) {
+    log("❌ Invalid process choice. Exiting...", true);
     rl.close();
     process.exit();
   }
 
-  console.log("\nOptions:");
-  console.log("1. Single account");
-  console.log("2. All accounts");
+  log(`Selected process: ${processChoice}`);
+
+  log("Options:");
+  log("1. Single account");
+  log("2. All accounts");
 
   const accountChoice = await question("\nSelect an option for accounts (1/2): ");
 
   if (accountChoice === "1") {
-    console.log("Available Accounts:");
+    log("Available Accounts:");
     accounts.forEach((account, index) => {
-      console.log(`${index + 1}. ${account.name || `Account ${index + 1}`}`);
+      log(`${index + 1}. ${account.name || `Account ${index + 1}`}`);
     });
 
     const selectedAccountIndex = await question("\nSelect an account by number: ");
     const selectedIndex = parseInt(selectedAccountIndex, 10) - 1;
 
     if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= accounts.length) {
-      console.log("❌ Invalid selection. Exiting...");
+      log("❌ Invalid selection. Exiting...", true);
       rl.close();
       process.exit();
     }
 
     const selectedAccount = accounts[selectedIndex];
-    console.log(`\nSelected Account: ${selectedAccount.name || `Account ${selectedIndex + 1}`}`);
+    log(`Selected Account: ${selectedAccount.name || `Account ${selectedIndex + 1}`}`);
     await processAccount(selectedAccount.token, processChoice);
   } else if (accountChoice === "2") {
-    console.log("\nProcessing all accounts...");
+    log("Processing all accounts...");
     for (const account of accounts) {
-      console.log(`\nProcessing Account: ${account.name || `Account`}`);
+      log(`Processing Account: ${account.name || `Account`}`);
       await processAccount(account.token, processChoice);
     }
-    console.log("\nFinished processing all accounts.");
+    log("Finished processing all accounts.");
+    log("========== PROGRAM ENDED ==========\n");
     rl.close();
     process.exit();
   } else {
-    console.log("❌ Invalid account choice. Exiting...");
+    log("❌ Invalid account choice. Exiting...", true);
+    log("========== PROGRAM ENDED ==========\n");
     rl.close();
     process.exit();
   }
@@ -115,7 +153,7 @@ async function processAccount(token, processChoice) {
 
   return new Promise((resolve) => {
     client.on("ready", async () => {
-      console.log(`\nLogged in as ${client.user.tag}!`);
+      log(`Logged in as ${client.user.tag}!`);
 
       if (processChoice === "1") {
         await handleServerSelection(client);
@@ -127,16 +165,19 @@ async function processAccount(token, processChoice) {
         await handleLeaveByInviteLink(client);
       } else if (processChoice === "5") {
         await handleLeaveByInviteLinkFromFile(client);
+      } else if (processChoice === "6") {
+        await handleSaveGroupNames(client);
       } else {
-        console.log("Invalid choice. Skipping...");
+        log("Invalid choice. Skipping...");
       }
 
       client.destroy();
+      log("========== ACCOUNT SESSION ENDED ==========\n");
       resolve();
     });
 
     client.login(token).catch((error) => {
-      console.error(`❌ Failed to login with token: ${error.message}`);
+      log(`Failed to login with token: ${error.message}`, true);
       resolve();
     });
   });
@@ -153,15 +194,15 @@ async function handleServerSelection(client) {
       joinedAt: guild.joinedAt.toDateString(),
     }));
 
-  console.log("\nServers:");
+  log("Servers:");
   servers.forEach((server) => {
-    console.log(`${server.index}. ${server.name} (ID: ${server.id})`);
+    log(`${server.index}. ${server.name} (ID: ${server.id})`);
   });
 
   const serverIDs = await question("\nEnter the IDs of servers to leave (comma-separated): ");
   const idsToLeave = serverIDs.split(",").map((id) => id.trim());
 
-  console.log("\nStarting server leave process...");
+  log(`Starting server leave process for ${idsToLeave.length} server(s)...`);
   for (let i = 0; i < idsToLeave.length; i++) {
     const id = idsToLeave[i];
     const guild = client.guilds.cache.get(id);
@@ -169,12 +210,12 @@ async function handleServerSelection(client) {
     if (guild) {
       try {
         await guild.leave();
-        console.log(`✅ Successfully left server: ${guild.name}`);
+        log(`✅ Successfully left server: ${guild.name}`);
       } catch (error) {
-        console.error(`❌ Failed to leave server with ID ${id}:`, error);
+        log(`Failed to leave server with ID ${id}: ${error.message}`, true);
       }
     } else {
-      console.log(`❌ Server with ID ${id} not found or already left.`);
+      log(`Server with ID ${id} not found or already left.`);
     }
 
     if (i < idsToLeave.length - 1) {
@@ -182,7 +223,7 @@ async function handleServerSelection(client) {
     }
   }
 
-  console.log("\nFinished.");
+  log("Finished server selection process.");
 }
 
 // Function to leave servers by ID from file
@@ -190,7 +231,7 @@ async function handleLeaveByIDFromFile(client) {
   const filePath = "serverid.txt";
 
   if (!fs.existsSync(filePath)) {
-    console.log(`❌ File "${filePath}" not found. Please create it and add server IDs.`);
+    log(`File "${filePath}" not found. Please create it and add server IDs.`, true);
     return;
   }
 
@@ -198,11 +239,11 @@ async function handleLeaveByIDFromFile(client) {
   const idsToLeave = fileContent.split("\n").map((id) => id.trim()).filter(Boolean);
 
   if (idsToLeave.length === 0) {
-    console.log(`❌ No valid server IDs found in "${filePath}".`);
+    log(`No valid server IDs found in "${filePath}".`, true);
     return;
   }
 
-  console.log("\nStarting server leave process...");
+  log(`Starting server leave process for ${idsToLeave.length} server(s) from file...`);
   for (let i = 0; i < idsToLeave.length; i++) {
     const id = idsToLeave[i];
     const guild = client.guilds.cache.get(id);
@@ -210,12 +251,12 @@ async function handleLeaveByIDFromFile(client) {
     if (guild) {
       try {
         await guild.leave();
-        console.log(`✅ Successfully left server: ${guild.name}`);
+        log(`✅ Successfully left server: ${guild.name}`);
       } catch (error) {
-        console.error(`❌ Failed to leave server with ID ${id}:`, error);
+        log(`Failed to leave server with ID ${id}: ${error.message}`, true);
       }
     } else {
-      console.log(`❌ Server with ID ${id} not found or already left.`);
+      log(`Server with ID ${id} not found or already left.`);
     }
 
     if (i < idsToLeave.length - 1) {
@@ -223,7 +264,7 @@ async function handleLeaveByIDFromFile(client) {
     }
   }
 
-  console.log("\nFinished.");
+  log("Finished leave by ID from file process.");
 }
 
 // Function to leave a server using an invite link
@@ -237,13 +278,13 @@ async function handleLeaveByInviteLink(client) {
 
     const guild = client.guilds.cache.get(guildId);
     if (!guild) {
-      console.log(`❌ You are not a member of the server: ${invite.guild.name}`);
+      log(`You are not a member of the server: ${invite.guild.name}`);
     } else {
       await guild.leave();
-      console.log(`✅ Successfully left server: ${invite.guild.name}`);
+      log(`✅ Successfully left server: ${invite.guild.name}`);
     }
   } catch (error) {
-    console.error(`❌ Failed to process invite link: ${error.message}`);
+    log(`Failed to process invite link: ${error.message}`, true);
   }
 }
 
@@ -252,7 +293,7 @@ async function handleLeaveByInviteLinkFromFile(client) {
   const filePath = "invitelink.txt";
 
   if (!fs.existsSync(filePath)) {
-    console.log(`❌ File "${filePath}" not found. Please create it and add invite links.`);
+    log(`File "${filePath}" not found. Please create it and add invite links.`, true);
     return;
   }
 
@@ -260,11 +301,11 @@ async function handleLeaveByInviteLinkFromFile(client) {
   const inviteLinks = fileContent.split("\n").map((link) => link.trim()).filter(Boolean);
 
   if (inviteLinks.length === 0) {
-    console.log(`❌ No valid invite links found in "${filePath}".`);
+    log(`No valid invite links found in "${filePath}".`, true);
     return;
   }
 
-  console.log("\nStarting to leave servers using invite links...");
+  log(`Starting to leave ${inviteLinks.length} server(s) using invite links...`);
   for (let i = 0; i < inviteLinks.length; i++) {
     const inviteLink = inviteLinks[i];
     const inviteCode = inviteLink.split("/").pop();
@@ -275,13 +316,13 @@ async function handleLeaveByInviteLinkFromFile(client) {
 
       const guild = client.guilds.cache.get(guildId);
       if (!guild) {
-        console.log(`❌ You are not a member of the server: ${invite.guild.name}`);
+        log(`You are not a member of the server: ${invite.guild.name}`);
       } else {
         await guild.leave();
-        console.log(`✅ Successfully left server: ${invite.guild.name}`);
+        log(`✅ Successfully left server: ${invite.guild.name}`);
       }
     } catch (error) {
-      console.error(`❌ Failed to process invite link (${inviteLink}): ${error.message}`);
+      log(`Failed to process invite link (${inviteLink}): ${error.message}`, true);
     }
 
     if (i < inviteLinks.length - 1) {
@@ -289,7 +330,7 @@ async function handleLeaveByInviteLinkFromFile(client) {
     }
   }
 
-  console.log("\nFinished processing invite links.");
+  log("Finished processing invite links.");
 }
 
 // Function to leave all servers
@@ -297,20 +338,21 @@ async function handleLeaveAllServers(client) {
   const servers = Array.from(client.guilds.cache.values());
 
   if (servers.length === 0) {
-    console.log("\nYou are not a member of any servers.");
+    log("You are not a member of any servers.");
+    log("========== PROGRAM ENDED ==========\n");
     rl.close();
     process.exit();
   }
 
-  console.log("\nStarting to leave all servers...");
+  log(`Starting to leave all ${servers.length} server(s)...`);
   for (let i = 0; i < servers.length; i++) {
     const guild = servers[i];
 
     try {
       await guild.leave();
-      console.log(`✅ Successfully left server: ${guild.name}`);
+      log(`✅ Successfully left server: ${guild.name}`);
     } catch (error) {
-      console.error(`❌ Failed to leave server: ${guild.name} (ID: ${guild.id}):`, error);
+      log(`Failed to leave server: ${guild.name} (ID: ${guild.id}): ${error.message}`, true);
     }
 
     if (i < servers.length - 1) {
@@ -318,7 +360,32 @@ async function handleLeaveAllServers(client) {
     }
   }
 
-  console.log("\nFinished leaving all servers.");
+  log("Finished leaving all servers.");
+  log("========== PROGRAM ENDED ==========\n");
+  rl.close();
+  process.exit();
+}
+
+// Function to save all group names
+async function handleSaveGroupNames(client) {
+  const servers = Array.from(client.guilds.cache.values())
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (servers.length === 0) {
+    log("You are not a member of any servers.");
+    return;
+  }
+
+  log(`Found ${servers.length} group(s). Saving to file...`);
+  saveGroupNames(servers);
+  
+  log("Group names saved:");
+  servers.forEach((server, index) => {
+    log(`${index + 1}. ${server.name}|${server.id}`);
+  });
+
+  log("Finished saving group names.");
+  log("========== PROGRAM ENDED ==========\n");
   rl.close();
   process.exit();
 }
